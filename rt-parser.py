@@ -18,7 +18,7 @@ def str2hexstr(inStr):
     return ":".join("{:02x}".format(ord(c)) for c in inStr)
 
 
-def parseRoutinTableHuaweiCE():
+def parseRoutingTableHuaweiCE():
     inFile = sys.stdin
 
     allRoutingTables = []
@@ -121,26 +121,51 @@ def parseRoutinTableHuaweiCE():
                 raise
                 quit()
 
+    return allRoutingTables
+
+def getRoute(vpn, prefix):
+    """
+        Function for searching specified prefix in allRoutingTables
+    """
+    res = []
+    resrt = []
+
+    for RT in allRoutingTables:
+        if (RT['Name'] == vpn) or (vpn == ''):
+            for line in RT['RouteRecords']:
+                if line['Prefix'] == prefix:
+                    resrt.append(line)
+            res.append({'Name':RT['Name'],'RouteRecords':resrt})
+
+    return res
+
+def main():
+    import yaml
+    from tabulate import tabulate
+
+    global allRoutingTables
+    allRoutingTables = parseRoutingTableHuaweiCE()
+
     # Print 
     printYAML = False
+    printAllRoutes = True
 
     if printYAML:
-        import yaml
         print yaml.dump(allRoutingTables, default_flow_style=False)
 
     for RT in allRoutingTables:
         print 'VPN: %s \t\t Routes: %s' % (RT['Name'], len(RT['RouteRecords']))
 
-        continue
+        if printAllRoutes:
+            #for line in RT['RouteRecords']:
+                #print '%s\t%s' % (line['Prefix'], line['Interface'])
+            print tabulate(RT['RouteRecords'], headers="keys")
 
-        for line in RT['RouteRecords']:
-            print '%s\t%s' % (line['Prefix'], line['Interface'])
-
-    #print allRoutingTables
-
-def main():
-    parseRoutinTableHuaweiCE()
-
+    print tabulate(RT, headers="keys")
+    #print tabulate(getRoute('', '10.255.2.64/29'), headers="keys")
+    #print tabulate(getRoute('', '10.254.2.64/29'), headers="keys")
+    #print yaml.dump(getRoute('', '10.255.2.64/29'), default_flow_style=False)
+    #print yaml.dump(getRoute('', '10.254.2.64/29'), default_flow_style=False)
 
 if __name__ == '__main__':
     main()
