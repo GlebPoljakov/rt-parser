@@ -1,7 +1,6 @@
 #!/usr/bin/env python
 
 import sys
-import yaml
 from tabulate import tabulate
 import click
 
@@ -155,18 +154,53 @@ def getRoute(vpn, prefix):
 
     return res
 
-def printYaml():
-    print 'printYaml'
+def printYaml(allRoutingTables):
+    """
+        Output Routing Table in YAML-format
+    """
+    import yaml
     print yaml.dump(allRoutingTables, default_flow_style=False)
 
-def printPlain():
-    print 'printPlain'
+def printPlain(allRoutingTables):
+    """
+        Output Routing Table in Plain text
+    """
+
+    for RT in allRoutingTables:
+        print 'VPN: %s \t\t Routes: %s' % (RT['Name'], len(RT['RouteRecords']))
+
+        tobePrinted = []
+
+        for rec, recval in RT['RouteRecords'].items():
+            try:
+                difference = [
+                    recval['Protocol'], recval['Nexthop'], recval['Interface']
+                ] != [
+                    recval['ProtocolTobe'], recval['NexthopTobe'], recval['InterfaceTobe']
+                ]
+
+                difference = '!=>' if difference else ''
+
+
+                tobePrinted.append([
+                    difference,
+                    rec,
+                    recval['Protocol'], recval['Nexthop'], recval['Interface'],
+                    recval['ProtocolTobe'], recval['NexthopTobe'], recval['InterfaceTobe']
+                ])
+            except KeyError:
+                if gDebug >= 4:
+                     print '\t\t Recval: %s' % recval
+                     raise
+
+        print tabulate(tobePrinted, ['Diff', 'Prefix', 'Protocol', 'Nexthop', 'Interface', 'ProtocolTobe', 'NexthopTobe', 'InterfaceTobe'], tablefmt="pipe")
+    #    print tobePrinted
 
 def printHtml():
     print 'printHtml'
 
 @click.command()
-@click.option('--output', 'outputFormat', type=click.Choice(['plain', 'html']), default='html', help='Output format')
+@click.option('--output', 'outputFormat', type=click.Choice(['plain', 'html', 'yaml']), default='plain', help='Output format')
 @click.argument('rtdump1', type=click.File('r'))
 @click.argument('rtdump2', type=click.File('r'))
 @click.option('-d', '--debug', count=True)
@@ -187,32 +221,64 @@ def cli(outputFormat, rtdump1, rtdump2, debug):
     allRoutingTablesAsis = parseRoutingTableHuaweiCE(rtdump2)
     allRoutingTablesTobe = parseRoutingTableHuaweiCE(rtdump1)
 
+    #Preparations to Comparing - adding Tobe fields to Asis records.
+    if debug >= 2:
+        print 'Prepare to comparing RTs. ============================================================================================'
+
+    for RT in allRoutingTablesAsis:
+        vpnInstanceName = RT['Name']
+        if debug >= 3:
+            print '\t VPN-Instance: %s' % vpnInstanceName
+
+        #get corresponding RouteRecords of Tobe-state
+        RouteRecordsTobe = {}
+        for RTT in allRoutingTablesTobe:
+            if RTT['Name'] == vpnInstanceName:
+                RouteRecordsTobe = RTT['RouteRecords']
+                if debug >= 3:
+                    print '\t Tobe-state info found for VPN-Instance %s' % RTT['Name']
+                if debug >= 4:
+                    print '\t\t RouteRecordsTobe: %s' %RouteRecordsTobe
+                break
+
+        for Prefix, Route in RT['RouteRecords'].items():
+            try:
+                ProtocolTobe = RouteRecordsTobe[Prefix]['Protocol']
+                NexthopTobe = RouteRecordsTobe[Prefix]['Nexthop']
+                InterfaceTobe = RouteRecordsTobe[Prefix]['Interface']
+
+            except KeyError:
+                if debug >= 3:
+                    print '\t\t Tobe-state for Prefix %s not found.' % Prefix
+                ProtocolTobe = ''
+                NexthopTobe = ''
+                InterfaceTobe = ''
+
+            if debug >= 4:
+                print '\t\t\tProtocolTobe=%s' % ProtocolTobe
+                print '\t\t\tNexthopTobe=%s' % NexthopTobe
+                print '\t\t\tInterfaceTobe=%s' % InterfaceTobe
+
+            Route.update(
+                {'ProtocolTobe': ProtocolTobe,
+                 'NexthopTobe': NexthopTobe,
+                 'InterfaceTobe': InterfaceTobe,
+                }
+            )
+            if debug >= 4:
+                print '\t\t Updated Route is: %s' % Route
+
     # Print 
+    if debug >= 1:
+        print ' Printing ==========================================='
+
     doOutput = {
         'yaml': printYaml,
         'plain': printPlain,
         'html': printHtml,
     }
 
-    doOutput.get(outputFormat, 'plain')()
-
-    printAllRoutes = debug >= 2
-
-    quit()
-
-    for RT in allRoutingTables:
-        print 'VPN: %s \t\t Routes: %s' % (RT['Name'], len(RT['RouteRecords']))
-
-        if printAllRoutes:
-            try:
-                print RT['RouteRecords']['10.255.2.64/29']
-            except KeyError:
-                pass
-
-        if RT['Name'] in ['MGMT', 'AD' ]:
-            for rec, recval in RT['RouteRecords'].items():
-                print rec
-                print '\t%s' % recval
+    doOutput.get(outputFormat, 'plain')(allRoutingTablesAsis)
 
 if __name__ == '__main__':
     cli()
