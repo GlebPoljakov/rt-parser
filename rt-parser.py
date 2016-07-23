@@ -1,6 +1,9 @@
 #!/usr/bin/env python
 
 import sys
+import yaml
+from tabulate import tabulate
+import click
 
 def slices(s, *args):
     """
@@ -24,7 +27,7 @@ def parseRoutingTableHuaweiCE():
     allRoutingTables = []
 
     thisRTName = ''
-    thisRTLines = []
+    thisRTLines = {}
 
     rtDelimiter = '------------------------------------------------------------------------------' # Line that delimits VPN-Instances in input
 
@@ -60,7 +63,7 @@ def parseRoutingTableHuaweiCE():
                 break
 
             thisRTName = line[16:].strip()
-            thisRTLines = []
+            thisRTLines = {}
 
             #print 'New RT: %s' % thisRTName
 
@@ -81,8 +84,7 @@ def parseRoutingTableHuaweiCE():
 
         """
             Parse RecordLine to RouteRecord dict:
-                RouteRecord = {
-                                'Prefix': '10.1.1.0/24',
+                '10.1.1.0/24': {
                                 'Protocol': 'OSPF',
                                 'Preference': 150,
                                 'Cost': 401,
@@ -96,24 +98,21 @@ def parseRoutingTableHuaweiCE():
 
         # if this RouteLine not a continue of a previous one,
         if Prefix != '':
-            #print 'Prefix is "%s"' % Prefix
-            #Parse a RouteLine into a RouteRecord
-            RouteRecord = {
-                        'Prefix': Prefix,
-                        'Protocol': RouteLine[1].strip(),
-                        'Preference': RouteLine[2].strip(),
-                        'Cost': RouteLine[3].strip(),
-                        'Flags': RouteLine[4].strip(),
-                        'Nexthop': [RouteLine[5].strip(),],
-                        'Interface': [RouteLine[6].strip(),],
-            }
-            # Append a RouteRecord to routing table of VPN-Instance
-            thisRTLines.append(RouteRecord)
+            #Parse a RouteLine into a RouteRecord and append it
+            thisRTLines[Prefix] = {
+                                    'Protocol': RouteLine[1].strip(),
+                                    'Preference': RouteLine[2].strip(),
+                                    'Cost': RouteLine[3].strip(),
+                                    'Flags': RouteLine[4].strip(),
+                                    'Nexthop': [RouteLine[5].strip(),],
+                                    'Interface': [RouteLine[6].strip(),],
+                        }
+            lastPrefix = Prefix
         else:
             # this RouteLine is continue of previous, thus we need append info in this line into a previous RouteRecord
             try:
-                thisRTLines[-1]['Nexthop'].append(RouteLine[5].strip())
-                thisRTLines[-1]['Interface'].append(RouteLine[6].strip())
+                thisRTLines[lastPrefix]['Nexthop'].append(RouteLine[5].strip())
+                thisRTLines[lastPrefix]['Interface'].append(RouteLine[6].strip())
             except IndexError:
                 print 'Current Line:%s \n\tHex: %s' % (line, str2hexstr(line))
                 print 'Current RouteLine:%s \n\tHex: %s' % (RouteLine, str2hexstr(RouteLine))
@@ -139,15 +138,21 @@ def getRoute(vpn, prefix):
 
     return res
 
-def main():
-    import yaml
-    from tabulate import tabulate
+@click.command()
+@click.argument('asis', type=click.File('r'))
+@click.argument('tobe', type=click.File('r'))
+def cli(asis, tobe):
+
+    print 'asis is:%s' % asis
+    print 'tobe is:%s' % tobe
+
+    quit()
 
     global allRoutingTables
     allRoutingTables = parseRoutingTableHuaweiCE()
 
     # Print 
-    printYAML = False
+    printYAML = True
     printAllRoutes = True
 
     if printYAML:
@@ -157,16 +162,12 @@ def main():
         print 'VPN: %s \t\t Routes: %s' % (RT['Name'], len(RT['RouteRecords']))
 
         if printAllRoutes:
+            try:
+                print RT['RouteRecords']['10.255.2.64/29']
+            except KeyError:
+                pass
+
             #for line in RT['RouteRecords']:
                 #print '%s\t%s' % (line['Prefix'], line['Interface'])
-            print tabulate(RT['RouteRecords'], headers="keys")
-
-    print tabulate(RT, headers="keys")
-    #print tabulate(getRoute('', '10.255.2.64/29'), headers="keys")
-    #print tabulate(getRoute('', '10.254.2.64/29'), headers="keys")
-    #print yaml.dump(getRoute('', '10.255.2.64/29'), default_flow_style=False)
-    #print yaml.dump(getRoute('', '10.254.2.64/29'), default_flow_style=False)
-
-if __name__ == '__main__':
-    main()
+#            print tabulate(RT['RouteRecords'])
 
