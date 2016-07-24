@@ -3,6 +3,7 @@
 import sys
 from tabulate import tabulate
 import click
+import inspect
 
 def slices(s, *args):
     """
@@ -154,12 +155,85 @@ def getRoute(vpn, prefix):
 
     return res
 
+def printEntrypoint(allRoutingTables, outputFormat, inputVpnInstance):
+    """
+        General printing logic with invoking output format function.
+
+        Variables:
+            inputVpnInstance - filter of VPNs, type is list
+            outputFormat - is type of output (plaintext, html, yaml, etc)
+            allRoutingTables - routing information
+    """
+    if gDebug >= 2:
+        print '\tprintEntrypoint aruments:'
+        for arg, val in locals().items():
+            if type(val) is list:
+                val = 'list with %s entries.' % len(val)
+            click.echo('\t\t"%s" is "%s"' % (arg, val))
+
+    doOutput = {
+        'yaml': printYaml,
+        'plain': printPlain,
+        'html': printHtml,
+    }
+
+    tobePrinted = []
+
+    for RT in allRoutingTables:
+        #Skip this VPN if it not in filter-list, if filter-list not blank
+        if (
+            (RT['Name'] in inputVpnInstance) or (inputVpnInstance == '')
+        ):
+            if gDebug >= 3:
+                click.echo('\t\tVPN-Instance %s is in filter-list. Add it to print list.' % RT['Name'])
+
+            tobePrintedRTRRs = []
+
+            for rec, recval in RT['RouteRecords'].items():
+                try:
+                    lRouteAsis = recval['Protocol'], recval['Nexthop'], recval['Interface']
+                    lRouteTobe = recval['ProtocolTobe'], recval['NexthopTobe'], recval['InterfaceTobe']
+                    bRouteDiffer = lRouteAsis != lRouteTobe
+
+                    if gDebug >=4:
+                        click.echo('\t\t\tRouteAsis: {0}'.format(lRouteAsis))
+                        click.echo('\t\t\tRouteTobe: {0}'.format(lRouteTobe))
+                        click.echo('\t\t\tRouteAsis and RouteTobe has a differece: {0}'.format(bRouteDiffer))
+
+                    difference = '!=>' if bRouteDiffer else ''
+
+                    tobePrintedRTRRs.append([
+                        difference,
+                        rec,
+                        recval['Protocol'], recval['Nexthop'], recval['Interface'],
+                        recval['ProtocolTobe'], recval['NexthopTobe'], recval['InterfaceTobe']
+                    ])
+                except KeyError:
+                    if gDebug >= 4:
+                         print '\t\t Recval: %s' % recval
+                         raise
+
+            tobePrinted.append({'Name':RT['Name'],'RouteRecords':tobePrintedRTRRs})
+            #ENDFOR
+        #ENDIF
+
+    doOutput.get(outputFormat, 'plain')(tobePrinted)
+#ENDDEF
+
 def printYaml(allRoutingTables):
     """
         Output Routing Table in YAML-format
     """
     import yaml
-    print yaml.dump(allRoutingTables, default_flow_style=False)
+    for RT in allRoutingTables:
+        # if we need to find specific VPN-Instance
+        if inputVpnInstance:
+            #skip other VPNs
+            if RT['Name']!=inputVpnInstance:
+                continue
+
+        print 'VPN: %s \t\t Routes: %s' % (RT['Name'], len(RT['RouteRecords']))
+        print yaml.dump(RT['RouteRecords'], default_flow_style=False)
 
 def printPlain(allRoutingTables):
     """
@@ -169,51 +243,33 @@ def printPlain(allRoutingTables):
     for RT in allRoutingTables:
         print 'VPN: %s \t\t Routes: %s' % (RT['Name'], len(RT['RouteRecords']))
 
-        tobePrinted = []
+        #TODO: move column names, avoid hardcoding its in tabulate invoke.
+        print tabulate( RT['RouteRecords'],
+                       ['Diff', 'Prefix', 'Protocol', 'Nexthop', 'Interface', 'ProtocolTobe', 'NexthopTobe', 'InterfaceTobe'],
+                       tablefmt="pipe"
+                      )
 
-        for rec, recval in RT['RouteRecords'].items():
-            try:
-                difference = [
-                    recval['Protocol'], recval['Nexthop'], recval['Interface']
-                ] != [
-                    recval['ProtocolTobe'], recval['NexthopTobe'], recval['InterfaceTobe']
-                ]
-
-                difference = '!=>' if difference else ''
-
-
-                tobePrinted.append([
-                    difference,
-                    rec,
-                    recval['Protocol'], recval['Nexthop'], recval['Interface'],
-                    recval['ProtocolTobe'], recval['NexthopTobe'], recval['InterfaceTobe']
-                ])
-            except KeyError:
-                if gDebug >= 4:
-                     print '\t\t Recval: %s' % recval
-                     raise
-
-        print tabulate(tobePrinted, ['Diff', 'Prefix', 'Protocol', 'Nexthop', 'Interface', 'ProtocolTobe', 'NexthopTobe', 'InterfaceTobe'], tablefmt="pipe")
-    #    print tobePrinted
-
-def printHtml():
-    print 'printHtml'
+def printHtml(allRoutingTables):
+    print 'printHtml(%s, %s)' % (allRoutingTables, inputVpnInstance)
 
 @click.command()
 @click.option('--output', 'outputFormat', type=click.Choice(['plain', 'html', 'yaml']), default='plain', help='Output format')
+@click.option('-vpn', '--vpn-instance', 'inputVpnInstance', default='', help='Parce only this one vpn-instance. Case sencetive.', multiple=True)
 @click.argument('rtdump1', type=click.File('r'))
 @click.argument('rtdump2', type=click.File('r'))
 @click.option('-d', '--debug', count=True)
-def cli(outputFormat, rtdump1, rtdump2, debug):
+def cli(outputFormat, inputVpnInstance, rtdump1, rtdump2, debug):
     """
         Comparison of routing table dump from 'rtdump1' file with dump from 'rtdump2' file.
         rtdump1 - is a TOBE-state of routing table.
         rtdump2 - is ASIS-state.
     """
     if debug:
-        click.echo('outputFormat is:%s' % outputFormat)
-        click.echo('asis is:%s' % rtdump1)
-        click.echo('tobe is:%s' % rtdump2)
+        print '\tStart aruments:'
+        for arg, val in locals().items():
+            if type(val) is list:
+                val = 'list with %s entries.' % len(val)
+            click.echo('\t\t"%s" is "%s"' % (arg, val))
 
     global gDebug
     gDebug = debug
@@ -270,15 +326,9 @@ def cli(outputFormat, rtdump1, rtdump2, debug):
 
     # Print 
     if debug >= 1:
-        print ' Printing ==========================================='
+        print '\n\n\n== PRINTING ==========================================='
 
-    doOutput = {
-        'yaml': printYaml,
-        'plain': printPlain,
-        'html': printHtml,
-    }
-
-    doOutput.get(outputFormat, 'plain')(allRoutingTablesAsis)
+    printEntrypoint(allRoutingTablesAsis, outputFormat, inputVpnInstance)
 
 if __name__ == '__main__':
     cli()
