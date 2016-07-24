@@ -155,12 +155,11 @@ def getRoute(vpn, prefix):
 
     return res
 
-def printEntrypoint(allRoutingTables, outputFormat, inputVpnInstance):
+def printEntrypoint(allRoutingTables, outputFormat,):
     """
         General printing logic with invoking output format function.
 
         Variables:
-            inputVpnInstance - filter of VPNs, type is list
             outputFormat - is type of output (plaintext, html, yaml, etc)
             allRoutingTables - routing information
     """
@@ -175,14 +174,36 @@ def printEntrypoint(allRoutingTables, outputFormat, inputVpnInstance):
         'yaml': printYaml,
         'plain': printPlain,
         'html': printHtml,
+        'tabulate': printTabulate,
     }
+
+    doOutput.get(outputFormat, 'plain')(allRoutingTables)
+#ENDDEF
+
+def printComparedEntrypoint(allRoutingTables, outputFormat, inputVpnInstance, inputProtocol):
+    """
+        General printing logic with invoking output format function.
+
+        Variables:
+            inputVpnInstance - filter of VPNs, type is list
+            inputProtocol - specifies which protocols display
+            outputFormat - is type of output (plaintext, html, yaml, etc)
+            allRoutingTables - routing information
+    """
+    if gDebug >= 2:
+        print '\tprintEntrypoint aruments:'
+        for arg, val in locals().items():
+            if type(val) is list:
+                val = 'list with %s entries.' % len(val)
+            click.echo('\t\t"%s" is "%s"' % (arg, val))
 
     tobePrinted = []
 
     for RT in allRoutingTables:
         #Skip this VPN if it not in filter-list, if filter-list not blank
         if (
-            (RT['Name'] in inputVpnInstance) or (inputVpnInstance == '')
+            (RT['Name'] in inputVpnInstance) or
+            (inputVpnInstance == '')
         ):
             if gDebug >= 3:
                 click.echo('\t\tVPN-Instance %s is in filter-list. Add it to print list.' % RT['Name'])
@@ -191,11 +212,18 @@ def printEntrypoint(allRoutingTables, outputFormat, inputVpnInstance):
 
             for rec, recval in RT['RouteRecords'].items():
                 try:
+                    #if Protocol or ProtocolTobe is not int specified Protocols, goto next.
+                    if not (
+                        (recval['Protocol'] in inputProtocol) or
+                        (recval['ProtocolTobe'] in inputProtocol)
+                    ):
+                        continue
+
                     lRouteAsis = recval['Protocol'], recval['Nexthop'], recval['Interface']
                     lRouteTobe = recval['ProtocolTobe'], recval['NexthopTobe'], recval['InterfaceTobe']
                     bRouteDiffer = lRouteAsis != lRouteTobe
 
-                    if gDebug >=4:
+                    if gDebug >= 4:
                         click.echo('\t\t\tRouteAsis: {0}'.format(lRouteAsis))
                         click.echo('\t\t\tRouteTobe: {0}'.format(lRouteTobe))
                         click.echo('\t\t\tRouteAsis and RouteTobe has a differece: {0}'.format(bRouteDiffer))
@@ -210,14 +238,15 @@ def printEntrypoint(allRoutingTables, outputFormat, inputVpnInstance):
                     ])
                 except KeyError:
                     if gDebug >= 4:
-                         print '\t\t Recval: %s' % recval
-                         raise
+                        print '\t\t Recval: %s' % recval
+                        raise
+            #ENDFOR
 
             tobePrinted.append({'Name':RT['Name'],'RouteRecords':tobePrintedRTRRs})
-            #ENDFOR
         #ENDIF
+    #ENDFOR
 
-    doOutput.get(outputFormat, 'plain')(tobePrinted)
+    printEntrypoint(tobePrinted, outputFormat)
 #ENDDEF
 
 def printYaml(allRoutingTables):
@@ -226,18 +255,12 @@ def printYaml(allRoutingTables):
     """
     import yaml
     for RT in allRoutingTables:
-        # if we need to find specific VPN-Instance
-        if inputVpnInstance:
-            #skip other VPNs
-            if RT['Name']!=inputVpnInstance:
-                continue
-
         print 'VPN: %s \t\t Routes: %s' % (RT['Name'], len(RT['RouteRecords']))
         print yaml.dump(RT['RouteRecords'], default_flow_style=False)
 
-def printPlain(allRoutingTables):
+def printTabulate(allRoutingTables):
     """
-        Output Routing Table in Plain text
+        Output Routing Table in Plain text with Tabulate
     """
 
     for RT in allRoutingTables:
@@ -249,41 +272,60 @@ def printPlain(allRoutingTables):
                        tablefmt="pipe"
                       )
 
+def printPlain(allRoutingTables):
+    """
+        Output Routing Table in Plain text
+    """
+
+    for RT in allRoutingTables:
+        click.echo('============================================================================================================')
+        click.echo('VPN: %s \t\t Routes: %s' % (RT['Name'], len(RT['RouteRecords'])))
+        click.echo('============================================================================================================')
+
+        for rec, recval in RT['RouteRecords'].items():
+            click.echo('{0}\t{1}'.format(rec,recval))
+
 def printHtml(allRoutingTables):
     print 'printHtml(%s, %s)' % (allRoutingTables, inputVpnInstance)
 
-@click.command()
-@click.option('--output', 'outputFormat', type=click.Choice(['plain', 'html', 'yaml']), default='plain', help='Output format')
-@click.option('-vpn', '--vpn-instance', 'inputVpnInstance', default='', help='Parce only this one vpn-instance. Case sencetive.', multiple=True)
+@click.group()
+@click.option('-d', '--debug', count=True)
+@click.option('--output', 'outf', type=click.Choice(['plain', 'html', 'yaml', 'tabulate']), default='plain', help='Output format')
+def cli(debug, outf):
+    global gDebug
+    gDebug = debug
+
+    global outputFormat
+    outputFormat = outf
+
+@cli.command()
+@click.option('-vpn', '--vpn-instance', 'inputVpnInstance', default='', help='Parce only this one vpn-instance. Case sencetive. Can be provided multiple times.', multiple=True)
+@click.option('-proto', '--protocol', 'inputProtocol', default='', help='Specifies which protocols parse.', multiple=True)
 @click.argument('rtdump1', type=click.File('r'))
 @click.argument('rtdump2', type=click.File('r'))
-@click.option('-d', '--debug', count=True)
-def cli(outputFormat, inputVpnInstance, rtdump1, rtdump2, debug):
+def compareRTs(inputVpnInstance, inputProtocol, rtdump1, rtdump2):
     """
         Comparison of routing table dump from 'rtdump1' file with dump from 'rtdump2' file.
         rtdump1 - is a TOBE-state of routing table.
         rtdump2 - is ASIS-state.
     """
-    if debug:
+    if gDebug:
         print '\tStart aruments:'
         for arg, val in locals().items():
             if type(val) is list:
                 val = 'list with %s entries.' % len(val)
             click.echo('\t\t"%s" is "%s"' % (arg, val))
 
-    global gDebug
-    gDebug = debug
-
     allRoutingTablesAsis = parseRoutingTableHuaweiCE(rtdump2)
     allRoutingTablesTobe = parseRoutingTableHuaweiCE(rtdump1)
 
     #Preparations to Comparing - adding Tobe fields to Asis records.
-    if debug >= 2:
+    if gDebug >= 2:
         print 'Prepare to comparing RTs. ============================================================================================'
 
     for RT in allRoutingTablesAsis:
         vpnInstanceName = RT['Name']
-        if debug >= 3:
+        if gDebug >= 3:
             print '\t VPN-Instance: %s' % vpnInstanceName
 
         #get corresponding RouteRecords of Tobe-state
@@ -291,9 +333,9 @@ def cli(outputFormat, inputVpnInstance, rtdump1, rtdump2, debug):
         for RTT in allRoutingTablesTobe:
             if RTT['Name'] == vpnInstanceName:
                 RouteRecordsTobe = RTT['RouteRecords']
-                if debug >= 3:
+                if gDebug >= 3:
                     print '\t Tobe-state info found for VPN-Instance %s' % RTT['Name']
-                if debug >= 4:
+                if gDebug >= 4:
                     print '\t\t RouteRecordsTobe: %s' %RouteRecordsTobe
                 break
 
@@ -304,13 +346,13 @@ def cli(outputFormat, inputVpnInstance, rtdump1, rtdump2, debug):
                 InterfaceTobe = RouteRecordsTobe[Prefix]['Interface']
 
             except KeyError:
-                if debug >= 3:
+                if gDebug >= 3:
                     print '\t\t Tobe-state for Prefix %s not found.' % Prefix
                 ProtocolTobe = ''
                 NexthopTobe = ''
                 InterfaceTobe = ''
 
-            if debug >= 4:
+            if gDebug >= 4:
                 print '\t\t\tProtocolTobe=%s' % ProtocolTobe
                 print '\t\t\tNexthopTobe=%s' % NexthopTobe
                 print '\t\t\tInterfaceTobe=%s' % InterfaceTobe
@@ -321,14 +363,75 @@ def cli(outputFormat, inputVpnInstance, rtdump1, rtdump2, debug):
                  'InterfaceTobe': InterfaceTobe,
                 }
             )
-            if debug >= 4:
+            if gDebug >= 4:
                 print '\t\t Updated Route is: %s' % Route
 
     # Print 
-    if debug >= 1:
+    if gDebug >= 1:
         print '\n\n\n== PRINTING ==========================================='
 
-    printEntrypoint(allRoutingTablesAsis, outputFormat, inputVpnInstance)
+    printComparedEntrypoint(allRoutingTablesAsis, outputFormat, inputVpnInstance, inputProtocol)
+
+@cli.command()
+@click.option('-vpn', '--vpn-instance', 'inputVpnInstance', default='', help='Parce only this one vpn-instance. Case sencetive. Can be provided multiple times.', multiple=True)
+@click.option('-proto', '--protocol', 'inputProtocol', default='', help='Specifies which protocols parse.', multiple=True)
+@click.argument('rtdump', type=click.File('r'))
+def parseRT(inputVpnInstance, inputProtocol, rtdump):
+    """
+        Parsing RTDUMP and printing it in specified format.
+        rtdump - Dump of routing table Huawei CE12800 by 'display ip routing-table'.
+    """
+    if gDebug:
+        print '\tparseRT start aruments:'
+        for arg, val in locals().items():
+            if type(val) is list:
+                val = 'list with %s entries.' % len(val)
+            click.echo('\t\t"%s" is "%s"' % (arg, val))
+
+    allRoutingTables = parseRoutingTableHuaweiCE(rtdump)
+
+    # Print 
+    if gDebug >= 1:
+        print '\n\n\n== PRINTING ==========================================='
+
+    tobePrinted = []
+
+    #filter records for printing
+    for RT in allRoutingTables:
+        #Skip this VPN if it not in filter-list, if filter-list not blank
+        if (
+            (RT['Name'] in inputVpnInstance) or
+            (inputVpnInstance == ())
+        ):
+            if gDebug >= 3:
+                click.echo('\t\tVPN-Instance %s is in filter-list. Add it to print list.' % RT['Name'])
+
+            tobePrintedRTRRs = {} 
+
+            for rec, recval in RT['RouteRecords'].items():
+                try:
+                    #if Protocol or ProtocolTobe is not int specified Protocols, goto next.
+                    if not (
+                        (recval['Protocol'] in inputProtocol) or
+                        ( inputProtocol == () )
+                    ) :
+                        continue
+
+                    if gDebug >= 4:
+                        click.echo('\t\t\tAdding RR "{0}" to printing queue.'.format([rec,recval]))
+
+                    tobePrintedRTRRs.update({rec:recval})
+                except KeyError:
+                    if gDebug >= 4:
+                        print '\t\t Recval: %s' % recval
+                        raise
+            #ENDFOR
+
+            tobePrinted.append({'Name':RT['Name'],'RouteRecords':tobePrintedRTRRs})
+        #ENDIF
+    #ENDFOR
+
+    printEntrypoint(tobePrinted, outputFormat)
 
 if __name__ == '__main__':
     cli()
