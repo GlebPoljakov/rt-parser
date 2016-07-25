@@ -180,7 +180,7 @@ def printEntrypoint(allRoutingTables, outputFormat,):
     doOutput.get(outputFormat, 'plain')(allRoutingTables)
 #ENDDEF
 
-def printComparedEntrypoint(allRoutingTables, outputFormat, inputVpnInstance, inputProtocol):
+def printComparedEntrypoint(allRoutingTables, outputFormat, inputVpnInstance, inputProtocol, bDiffOnly):
     """
         General printing logic with invoking output format function.
 
@@ -203,7 +203,7 @@ def printComparedEntrypoint(allRoutingTables, outputFormat, inputVpnInstance, in
         #Skip this VPN if it not in filter-list, if filter-list not blank
         if (
             (RT['Name'] in inputVpnInstance) or
-            (inputVpnInstance == '')
+            (inputVpnInstance == ())
         ):
             if gDebug >= 3:
                 click.echo('\t\tVPN-Instance %s is in filter-list. Add it to print list.' % RT['Name'])
@@ -215,7 +215,8 @@ def printComparedEntrypoint(allRoutingTables, outputFormat, inputVpnInstance, in
                     #if Protocol or ProtocolTobe is not int specified Protocols, goto next.
                     if not (
                         (recval['Protocol'] in inputProtocol) or
-                        (recval['ProtocolTobe'] in inputProtocol)
+                        (recval['ProtocolTobe'] in inputProtocol) or
+                        (inputProtocol == ())
                     ):
                         continue
 
@@ -229,6 +230,11 @@ def printComparedEntrypoint(allRoutingTables, outputFormat, inputVpnInstance, in
                         click.echo('\t\t\tRouteAsis and RouteTobe has a differece: {0}'.format(bRouteDiffer))
 
                     difference = '!=>' if bRouteDiffer else ''
+
+                    #if need print only diffs
+                    if bDiffOnly:
+                        if not difference:
+                            continue
 
                     tobePrintedRTRRs.append([
                         difference,
@@ -301,9 +307,10 @@ def cli(debug, outf):
 @cli.command()
 @click.option('-vpn', '--vpn-instance', 'inputVpnInstance', default='', help='Parce only this one vpn-instance. Case sencetive. Can be provided multiple times.', multiple=True)
 @click.option('-proto', '--protocol', 'inputProtocol', default='', help='Specifies which protocols parse.', multiple=True)
+@click.option('-diff', '--diff-only', 'bDiffOnly', is_flag=True, help='Print only differeces.', default=False)
 @click.argument('rtdump1', type=click.File('r'))
 @click.argument('rtdump2', type=click.File('r'))
-def compareRTs(inputVpnInstance, inputProtocol, rtdump1, rtdump2):
+def compareRTs(inputVpnInstance, inputProtocol, bDiffOnly, rtdump1, rtdump2):
     """
         Comparison of routing table dump from 'rtdump1' file with dump from 'rtdump2' file.
         rtdump1 - is a TOBE-state of routing table.
@@ -370,11 +377,12 @@ def compareRTs(inputVpnInstance, inputProtocol, rtdump1, rtdump2):
     if gDebug >= 1:
         print '\n\n\n== PRINTING ==========================================='
 
-    printComparedEntrypoint(allRoutingTablesAsis, outputFormat, inputVpnInstance, inputProtocol)
+    printComparedEntrypoint(allRoutingTablesAsis, outputFormat, inputVpnInstance, inputProtocol, bDiffOnly)
+#ENDDEF
 
 @cli.command()
 @click.option('-vpn', '--vpn-instance', 'inputVpnInstance', default='', help='Parce only this one vpn-instance. Case sencetive. Can be provided multiple times.', multiple=True)
-@click.option('-proto', '--protocol', 'inputProtocol', default='', help='Specifies which protocols parse.', multiple=True)
+@click.option('-proto', '--protocol', 'inputProtocol', default='', help='Specifies which protocols parse. Case sencetive. Can be provided multiple times.', multiple=True)
 @click.argument('rtdump', type=click.File('r'))
 def parseRT(inputVpnInstance, inputProtocol, rtdump):
     """
@@ -406,7 +414,7 @@ def parseRT(inputVpnInstance, inputProtocol, rtdump):
             if gDebug >= 3:
                 click.echo('\t\tVPN-Instance %s is in filter-list. Add it to print list.' % RT['Name'])
 
-            tobePrintedRTRRs = {} 
+            tobePrintedRTRRs = {}
 
             for rec, recval in RT['RouteRecords'].items():
                 try:
