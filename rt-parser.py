@@ -3,7 +3,10 @@
 import sys
 from tabulate import tabulate
 import click
-import inspect
+import inspect #Check a need for this import.
+
+# TODO: Write class RoutingTable, or allRoutingTables
+
 
 def slices(s, *args):
     """
@@ -19,7 +22,6 @@ def str2hexstr(inStr):
         Return string chars in HEX as a string.
     """
     return ":".join("{:02x}".format(ord(c)) for c in inStr)
-
 
 def parseRoutingTableHuaweiCE(inFile):
     """
@@ -178,7 +180,6 @@ def printEntrypoint(allRoutingTables, outputFormat,):
     }
 
     doOutput.get(outputFormat, 'plain')(allRoutingTables)
-#ENDDEF
 
 def printComparedEntrypoint(allRoutingTables, outputFormat, inputVpnInstance, inputProtocol, bDiffOnly):
     """
@@ -253,7 +254,6 @@ def printComparedEntrypoint(allRoutingTables, outputFormat, inputVpnInstance, in
     #ENDFOR
 
     printEntrypoint(tobePrinted, outputFormat)
-#ENDDEF
 
 def printYaml(allRoutingTables):
     """
@@ -264,6 +264,7 @@ def printYaml(allRoutingTables):
         print 'VPN: %s \t\t Routes: %s' % (RT['Name'], len(RT['RouteRecords']))
         print yaml.dump(RT['RouteRecords'], default_flow_style=False)
 
+#TODO: move column names, avoid hardcoding its in tabulate invoke.
 def printTabulate(allRoutingTables):
     """
         Output Routing Table in Plain text with Tabulate
@@ -272,7 +273,6 @@ def printTabulate(allRoutingTables):
     for RT in allRoutingTables:
         print 'VPN: %s \t\t Routes: %s' % (RT['Name'], len(RT['RouteRecords']))
 
-        #TODO: move column names, avoid hardcoding its in tabulate invoke.
         print tabulate( RT['RouteRecords'],
                        ['Diff', 'Prefix', 'Protocol', 'Nexthop', 'Interface', 'ProtocolTobe', 'NexthopTobe', 'InterfaceTobe'],
                        tablefmt="pipe"
@@ -296,7 +296,9 @@ def printHtml(allRoutingTables):
 
 @click.group()
 @click.option('-d', '--debug', count=True)
-@click.option('--output', 'outf', type=click.Choice(['plain', 'html', 'yaml', 'tabulate']), default='plain', help='Output format')
+@click.option('--output', 'outf', type=click.Choice(['plain', 'html', 'yaml', 'tabulate']),
+              default='plain',
+              help='Output format')
 def cli(debug, outf):
     global gDebug
     gDebug = debug
@@ -305,9 +307,18 @@ def cli(debug, outf):
     outputFormat = outf
 
 @cli.command()
-@click.option('-vpn', '--vpn-instance', 'inputVpnInstance', default='', help='Parce only this one vpn-instance. Case sencetive. Can be provided multiple times.', multiple=True)
-@click.option('-proto', '--protocol', 'inputProtocol', default='', help='Specifies which protocols parse.', multiple=True)
-@click.option('-diff', '--diff-only', 'bDiffOnly', is_flag=True, help='Print only differeces.', default=False)
+@click.option('-vpn', '--vpn-instance', 'inputVpnInstance',
+              default='',
+              help='Parce only this one vpn-instance. Case sencetive. Can be provided multiple times.',
+              multiple=True)
+@click.option('-proto', '--protocol', 'inputProtocol',
+              default='',
+              help='Specifies which protocols parse.',
+              multiple=True)
+@click.option('-diff', '--diff-only', 'bDiffOnly',
+              is_flag=True,
+              help='Print only differeces.',
+              default=False)
 @click.argument('rtdump1', type=click.File('r'))
 @click.argument('rtdump2', type=click.File('r'))
 def compareRTs(inputVpnInstance, inputProtocol, bDiffOnly, rtdump1, rtdump2):
@@ -378,11 +389,16 @@ def compareRTs(inputVpnInstance, inputProtocol, bDiffOnly, rtdump1, rtdump2):
         print '\n\n\n== PRINTING ==========================================='
 
     printComparedEntrypoint(allRoutingTablesAsis, outputFormat, inputVpnInstance, inputProtocol, bDiffOnly)
-#ENDDEF
 
 @cli.command()
-@click.option('-vpn', '--vpn-instance', 'inputVpnInstance', default='', help='Parce only this one vpn-instance. Case sencetive. Can be provided multiple times.', multiple=True)
-@click.option('-proto', '--protocol', 'inputProtocol', default='', help='Specifies which protocols parse. Case sencetive. Can be provided multiple times.', multiple=True)
+@click.option('-vpn', '--vpn-instance', 'inputVpnInstance',
+              default='',
+              help='Parce only this one vpn-instance. Case sencetive. Can be provided multiple times.',
+              multiple=True)
+@click.option('-proto', '--protocol', 'inputProtocol',
+              default='',
+              help='Specifies which protocols parse. Case sencetive. Can be provided multiple times.',
+              multiple=True)
 @click.argument('rtdump', type=click.File('r'))
 def parseRT(inputVpnInstance, inputProtocol, rtdump):
     """
